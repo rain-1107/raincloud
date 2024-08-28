@@ -1,6 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
+// TODO: writing and reading save info from json file
+// TODO: connecting to ftp server and syncing logic
+// TODO: connecting to raincloud server and syncing logic
+
 use eframe::egui;
 
 fn main() -> eframe::Result {
