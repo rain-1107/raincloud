@@ -5,6 +5,15 @@
 // TODO: connecting to ftp server and syncing logic
 // TODO: connecting to raincloud server and syncing logic
 
+use serde_json::Result;
+
+fn save_date(saves: &Saves) -> Result<()> {
+    let j = serde_json::to_string(saves)?;
+    
+    println!("{}", j);
+    Ok(()) 
+}
+
 use eframe::egui;
 
 fn main() -> eframe::Result {
@@ -30,6 +39,7 @@ fn main() -> eframe::Result {
     )
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct SaveUI {
     pub name: String,
     pub path: String,
@@ -62,15 +72,21 @@ impl SaveUI {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Saves {
+    vec: Vec<SaveUI>,
+}
+
 struct MyApp {
-    saves: Vec<SaveUI>,
+    saves: Saves,
     save_name_buffer: String,
 }
+
 
 impl Default for MyApp {
     fn default() -> Self {
         let s = Self {
-            saves: Vec::new(),
+            saves: Saves {vec: Vec::new()},
             save_name_buffer: "".to_owned(),
         };
         s
@@ -83,14 +99,14 @@ impl eframe::App for MyApp {
             ui.heading("Saves");
             let mut to_remove = Vec::new();
             let mut i = 0;
-            for mut save in &mut self.saves {
+            for mut save in &mut self.saves.vec {
                 if SaveUI::display(&mut save, ui) {
                     to_remove.push(i);
                 }
                 i += 1;
             }
             for num in &mut to_remove {
-                self.saves.remove(*num);
+                self.saves.vec.remove(*num);
             }
             ui.horizontal(|ui| {
                 ui.add_sized(
@@ -98,7 +114,8 @@ impl eframe::App for MyApp {
                     egui::TextEdit::singleline(&mut self.save_name_buffer),
                 );
                 if ui.button("+").clicked() {
-                    self.saves.push(SaveUI {
+                    save_date(&self.saves);
+                    self.saves.vec.push(SaveUI {
                         name: self.save_name_buffer.clone(),
                         path: "".to_string(),
                     });
