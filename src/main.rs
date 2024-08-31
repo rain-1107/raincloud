@@ -25,6 +25,16 @@ struct Json {
     saves: Vec<SaveUI>,
 }
 
+impl Default for Json {
+    fn default() -> Self {
+        Self {
+            version: "unkown".to_string(),
+            saves: Vec::new(),
+        }
+
+    }
+}
+
 fn save_config_data(saves: &Vec<SaveUI>) -> Result<()> {
     let mut home = home::home_dir().unwrap(); 
     home.push(CONFIG_DIR);
@@ -41,8 +51,12 @@ fn load_config_data() -> Json {
     let mut home = home::home_dir().unwrap();
     home.push(CONFIG_DIR);
     home.push("config.json");
-    let file = fs::read(&home).unwrap();
-    serde_json::from_slice(&file).unwrap()
+    let file_result = fs::read(&home);
+    let file_slice = match file_result {
+        Ok(file) => file,
+        Err(_error) => return Json::default(),
+    };
+    serde_json::from_slice(&file_slice).unwrap()
 }
 
 fn main() -> eframe::Result {
@@ -67,7 +81,7 @@ fn main() -> eframe::Result {
             Ok(Box::<MyApp>::default())
         }),
     );
-    return result;
+    result
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -111,11 +125,10 @@ struct MyApp {
 impl Default for MyApp {
     fn default() -> Self {
         let data = load_config_data();
-        let s = Self {
+        Self {
             saves: data.saves.clone(),
             save_name_buffer: "".to_owned(),
-        };
-        s
+        }
     }
 }
 
