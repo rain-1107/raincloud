@@ -8,7 +8,7 @@ use serde_json::Result;
 use std::fs;
 use eframe::egui;
 
-const CONFIG_DIR: &str = ".rc-rs";
+const CONFIG_DIR: &str = ".rc";
 
 fn check_config_folder() {
     let mut home = home::home_dir().unwrap();
@@ -20,25 +20,32 @@ fn check_config_folder() {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Json {
-    version: String,
+    ftp_config: FtpDetails,
     saves: Vec<SaveUI>,
 }
 
 impl Default for Json {
     fn default() -> Self {
         Self {
-            version: "unkown".to_string(),
+            ftp_config: FtpDetails {ip: "".to_owned(), user: "".to_owned(), passwd: "".to_owned(), port: 21},
             saves: Vec::new(),
         }
-
     }
 }
 
-fn save_config_data(saves: &Vec<SaveUI>) -> Result<()> {
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct FtpDetails {
+    ip: String,
+    user: String,
+    passwd: String,
+    port: i64,
+}
+
+fn save_config_data(ftp_details: &FtpDetails, saves: &Vec<SaveUI>) -> Result<()> {
     let mut home = home::home_dir().unwrap(); 
     home.push(CONFIG_DIR);
     home.push("config.json");
-    let json_data = Json {version: "testing".to_string(), saves: saves.to_vec()};
+    let json_data = Json {ftp_config: ftp_details.clone(), saves: saves.to_vec()};
     let j = serde_json::to_string(&json_data)?;
     let path = &home;
     fs::write(path, &j).expect("Unable to write file");
@@ -117,6 +124,7 @@ impl SaveUI {
 }
 
 struct MyApp {
+    ftp: FtpDetails,
     saves: Vec<SaveUI>,
     save_name_buffer: String,
 }
@@ -125,6 +133,7 @@ impl Default for MyApp {
     fn default() -> Self {
         let data = load_config_data();
         Self {
+            ftp: data.ftp_config,
             saves: data.saves.clone(),
             save_name_buffer: "".to_owned(),
         }
@@ -163,7 +172,7 @@ impl eframe::App for MyApp {
     }
 
     fn on_exit(&mut self, _: std::option::Option<&eframe::glow::Context>) {
-        let _ = save_config_data(&self.saves);
+        let _ = save_config_data(&self.ftp, &self.saves);
         println!("Saved data");
     }
 }
