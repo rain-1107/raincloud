@@ -7,7 +7,6 @@
 use serde_json::Result;
 use std::fs;
 use eframe::egui;
-use eframe::Storage;
 
 const CONFIG_DIR: &str = ".rc-rs";
 
@@ -163,7 +162,7 @@ impl eframe::App for MyApp {
         });
     }
 
-    fn save(&mut self, _: &mut dyn Storage) {
+    fn on_exit(&mut self, _: std::option::Option<&eframe::glow::Context>) {
         let _ = save_config_data(&self.saves);
         println!("Saved data");
     }
