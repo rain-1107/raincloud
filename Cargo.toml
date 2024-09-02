@@ -1,5 +1,5 @@
 [package]
-name = "raincloud-rs"
+name = "raincloud"
 version = "0.1.0"
 edition = "2021"
 
@@ -13,3 +13,7 @@ rfd = "0.14.1"
 serde_json = "1.0.127"
 serde = "1.0.209"
 home = "0.5.9"
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-gcc-ar"

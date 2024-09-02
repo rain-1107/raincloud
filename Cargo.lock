@@ -2923,7 +2923,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "raincloud-rs"
+name = "raincloud"
 version = "0.1.0"
 dependencies = [
  "eframe",

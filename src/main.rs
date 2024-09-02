@@ -49,7 +49,6 @@ fn save_config_data(ftp_details: &FtpDetails, saves: &Vec<SaveUI>) -> Result<()>
     let j = serde_json::to_string(&json_data)?;
     let path = &home;
     fs::write(path, &j).expect("Unable to write file");
-    println!("{}", j);
     Ok(()) 
 }
 
@@ -90,6 +89,11 @@ fn main() -> eframe::Result {
     result
 }
 
+struct SaveData {
+    to_delete: bool,
+    editing: bool,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct SaveUI {
     pub name: String,
@@ -97,13 +101,23 @@ struct SaveUI {
 }
 
 impl SaveUI {
-    fn display(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut ret = false;
+    fn display(&mut self, ui: &mut egui::Ui, edit: bool) -> SaveData {
+        let mut data = SaveData {to_delete: false, editing: edit};
         ui.horizontal(|ui| {
-            ui.add_sized(
-                [80.0, 20.0],
-                egui::widgets::Label::new(format!("{}", self.name)),
-            );
+            if data.editing {
+                ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.name));
+                if ui.button("Done").clicked() {
+                    data.editing = false;
+                } 
+            } else {
+                ui.add_sized(
+                    [80.0, 20.0],
+                    egui::widgets::Label::new(format!("{}", self.name)),
+                );
+                if ui.button("Edit").clicked() {
+                    data.editing = true;
+                }
+            }
             ui.text_edit_singleline(&mut self.path);
             if ui.button("Folder").clicked() {
                 let result = rfd::FileDialog::new().set_directory("/").pick_folder();
@@ -115,18 +129,18 @@ impl SaveUI {
             if ui.button("Sync").clicked() {
                 println!("Hello");
             }
-            if ui.button("-").clicked() {
-                ret = true;
+            if ui.button("Delete").clicked() {
+                data.to_delete = true;
             }
         });
-        ret
+       data 
     }
 }
 
 struct MyApp {
     ftp: FtpDetails,
     saves: Vec<SaveUI>,
-    save_name_buffer: String,
+    editing: i64,
 }
 
 impl Default for MyApp {
@@ -135,7 +149,7 @@ impl Default for MyApp {
         Self {
             ftp: data.ftp_config,
             saves: data.saves.clone(),
-            save_name_buffer: "".to_owned(),
+            editing: -1,
         }
     }
 }
@@ -143,31 +157,25 @@ impl Default for MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Saves");
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("Saves", |ui| {
+                    if ui.button("New").clicked() {
+                        let s = SaveUI {name: "".to_string(), path: "".to_string()};
+                        self.saves.push(s);
+                    }
+                });
+            });
             let mut to_remove = Vec::new();
-            let mut i = 0;
+            let mut i: usize = 0;
             for mut save in &mut self.saves {
-                if SaveUI::display(&mut save, ui) {
-                    to_remove.push(i);
-                }
+                let data = SaveUI::display(&mut save, ui, i == self.editing as usize);
+                if data.to_delete { to_remove.push(i); }
+                if data.editing { self.editing = i as i64; } else { if self.editing == i as i64 { self.editing = -1}}
                 i += 1;
             }
             for num in &mut to_remove {
                 self.saves.remove(*num);
             }
-            ui.horizontal(|ui| {
-                ui.add_sized(
-                    [100.0, 20.0],
-                    egui::TextEdit::singleline(&mut self.save_name_buffer),
-                );
-                if ui.button("+").clicked() {
-                    self.saves.push(SaveUI {
-                        name: self.save_name_buffer.clone(),
-                        path: "".to_string(),
-                    });
-                    self.save_name_buffer = "".to_string();
-                }
-            })
         });
     }
 
