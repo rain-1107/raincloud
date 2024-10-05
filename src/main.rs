@@ -1,13 +1,15 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-#![allow(rustdoc::missing_crate_level_docs)] // it's an example
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(rustdoc::missing_crate_level_docs, unused)]
 
 pub mod data;
+pub mod ftp_sync;
 pub mod server_settings;
 
 // TODO: connecting to ftp server and syncing logic
 // TODO: connecting to raincloud server and syncing logic
 
 use eframe::egui;
+use egui::TextBuffer;
 
 fn main() -> eframe::Result {
     data::check_config_folder();
@@ -69,7 +71,7 @@ impl data::SaveUI {
                 }
             }
             if ui.button("Sync").clicked() {
-                println!("Hello");
+                ftp_sync::sync_save(self.name.clone(), self.path.clone()); // TODO: make asynchronous
             }
             if ui.button("Delete").clicked() {
                 data.to_delete = true;

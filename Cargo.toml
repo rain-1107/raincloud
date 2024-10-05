@@ -13,6 +13,8 @@ rfd = "0.14.1"
 serde_json = "1.0.127"
 serde = "1.0.209"
 home = "0.5.9"
+zip = "2.2.0"
+ftp = "3.0.1"
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
