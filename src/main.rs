@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(rustdoc::missing_crate_level_docs, unused)]
+#![allow(rustdoc::missing_crate_level_docs)]
 
 pub mod data;
 pub mod ftp_sync;
@@ -9,7 +9,6 @@ pub mod server_settings;
 // TODO: connecting to raincloud server and syncing logic
 
 use eframe::egui;
-use egui::TextBuffer;
 
 fn main() -> eframe::Result {
     data::check_config_folder();
@@ -39,6 +38,7 @@ fn main() -> eframe::Result {
 struct SaveData {
     to_delete: bool,
     editing: bool,
+    sync_request: bool,
 }
 
 impl data::SaveUI {
@@ -46,6 +46,7 @@ impl data::SaveUI {
         let mut data = SaveData {
             to_delete: false,
             editing: edit,
+            sync_request: false,
         };
         ui.horizontal(|ui| {
             if data.editing {
@@ -71,7 +72,7 @@ impl data::SaveUI {
                 }
             }
             if ui.button("Sync").clicked() {
-                ftp_sync::sync_save(self.name.clone(), self.path.clone()); // TODO: make asynchronous
+                data.sync_request = true;
             }
             if ui.button("Delete").clicked() {
                 data.to_delete = true;
@@ -104,6 +105,7 @@ impl Default for MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut to_sync = Vec::new();
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Saves", |ui| {
@@ -115,7 +117,13 @@ impl eframe::App for MyApp {
                         self.saves.push(s);
                         self.editing = (self.saves.len() - 1) as i64;
                     }
-                    if ui.button("Sync All").clicked() {}
+                    if ui.button("Sync All").clicked() {
+                        let mut n = 0;
+                        for s in &self.saves {
+                            to_sync.push(n);
+                            n += 1;
+                        }
+                    }
                 });
                 ui.menu_button("Server", |ui| {
                     ui.label("Selected Server");
@@ -142,6 +150,9 @@ impl eframe::App for MyApp {
                 if data.to_delete {
                     to_remove.push(i);
                 }
+                if data.sync_request && !to_sync.contains(&i) {
+                    to_sync.push(i);
+                }
                 if data.editing {
                     self.editing = i as i64;
                 } else {
@@ -153,6 +164,25 @@ impl eframe::App for MyApp {
             }
             for num in &mut to_remove {
                 self.saves.remove(*num);
+            }
+            let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
+            for num in to_sync {
+                std::thread::spawn(move || {
+                    let i = num.clone();
+                    let data = data::load_config_data();
+                    let res = ftp_sync::sync_save(
+                        &data.saves[i].name,
+                        &data.saves[i].path,
+                        &data.ftp_config.ip,
+                        &data.ftp_config.user,
+                        &data.ftp_config.passwd,
+                        data.ftp_config.port,
+                    );
+                    match res {
+                        Ok(()) => println!("Success for {}", &data.saves[i].name),
+                        Err(err) => println!("Failed. {}", err),
+                    }
+                });
             }
             if self.server_settings_window.open {
                 let mut ftp = server_settings::FTPSettings {
