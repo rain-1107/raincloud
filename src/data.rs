@@ -1,5 +1,4 @@
-use serde_json::Result;
-use std::fs;
+use std::{error::Error, fs, result::Result};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct SaveUI {
@@ -9,11 +8,18 @@ pub struct SaveUI {
 
 const CONFIG_DIR: &str = ".rc";
 
+pub fn purge_tmp_folder() -> Result<(), Box<dyn Error>> {
+    let mut path = home::home_dir().unwrap();
+    path.push(CONFIG_DIR);
+    path.push("tmp");
+    fs::remove_dir_all(&path)?;
+    Ok(())
+}
 pub fn check_config_folder() {
-    let mut home = home::home_dir().unwrap();
-    home.push(CONFIG_DIR);
-    if !home.exists() {
-        let _ = fs::create_dir(&home);
+    let mut path = home::home_dir().unwrap();
+    path.push(CONFIG_DIR);
+    if !path.exists() {
+        let _ = fs::create_dir(&path);
     }
 }
 
@@ -51,26 +57,25 @@ pub fn save_config_data(
     server: String,
     ftp_details: &FtpDetails,
     saves: &Vec<SaveUI>,
-) -> Result<()> {
-    let mut home = home::home_dir().unwrap();
-    home.push(CONFIG_DIR);
-    home.push("config.json");
+) -> Result<(), Box<dyn Error>> {
+    let mut path = home::home_dir().unwrap();
+    path.push(CONFIG_DIR);
+    path.push("config.json");
     let json_data = Json {
-        server: server,
+        server,
         ftp_config: ftp_details.clone(),
         saves: saves.to_vec(),
     };
     let j = serde_json::to_string(&json_data)?;
-    let path = &home;
-    fs::write(path, &j).expect("Unable to write file");
+    fs::write(&path, &j).expect("Unable to write file");
     Ok(())
 }
 
 pub fn load_config_data() -> Json {
-    let mut home = home::home_dir().unwrap();
-    home.push(CONFIG_DIR);
-    home.push("config.json");
-    let file_result = fs::read(&home);
+    let mut path = home::home_dir().unwrap();
+    path.push(CONFIG_DIR);
+    path.push("config.json");
+    let file_result = fs::read(&path);
     let file_slice = match file_result {
         Ok(file) => file,
         Err(_error) => return Json::default(),

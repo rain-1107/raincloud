@@ -2,11 +2,10 @@
 #![allow(rustdoc::missing_crate_level_docs)]
 
 pub mod data;
-pub mod ftp_sync;
 pub mod settings;
+pub mod sync;
 
-// TODO: connecting to ftp server and syncing logic
-// TODO: connecting to raincloud server and syncing logic
+use std::sync::mpsc;
 
 use eframe::egui;
 
@@ -88,6 +87,7 @@ struct MyApp {
     saves: Vec<data::SaveUI>,
     editing: i64,
     settings_window: settings::SettingsWindow,
+    // TODO: add threads and channels to keep track of concurrent processes
 }
 
 impl Default for MyApp {
@@ -107,6 +107,7 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut to_sync = Vec::new();
         egui::CentralPanel::default().show(ctx, |ui| {
+            // TODO: add custom window top thing
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Saves", |ui| {
                     if ui.button("New").clicked() {
@@ -145,6 +146,7 @@ impl eframe::App for MyApp {
             if self.saves.len() == 0 {
                 ui.label("No saves to show");
             }
+            // TODO: implement info text recieved from threads of saves
             for mut save in &mut self.saves {
                 let data = data::SaveUI::display(&mut save, ui, i == self.editing as usize);
                 if data.to_delete {
@@ -170,7 +172,7 @@ impl eframe::App for MyApp {
                 std::thread::spawn(move || {
                     let i = num.clone();
                     let data = data::load_config_data();
-                    let res = ftp_sync::sync_save(
+                    let res = sync::sync_save_ftp(
                         &data.saves[i].name,
                         &data.saves[i].path,
                         &data.ftp_config.ip,
@@ -201,7 +203,9 @@ impl eframe::App for MyApp {
     }
 
     fn on_exit(&mut self, _: std::option::Option<&eframe::glow::Context>) {
+        data::purge_tmp_folder().unwrap();
         let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
+        // TODO: Handle any threads still running
         println!("Saved data");
     }
 }
