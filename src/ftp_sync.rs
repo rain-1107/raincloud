@@ -1,18 +1,17 @@
 use chrono::offset::Local;
-use egui::TextBuffer;
 use ftp::FtpStream;
 use pathdiff;
 use std::{
     error::Error,
-    f64, fs,
+    f64,
+    fs::{self, File},
     io::{self, Read, Write},
-    path::Path,
-    path::PathBuf,
+    path::{Path, PathBuf},
     result::Result,
     str::from_utf8,
     time::UNIX_EPOCH,
 };
-use zip::{read::ZipFile, write::FileOptions, CompressionMethod, ZipArchive, ZipWriter};
+use zip::{write::FileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SaveData {
@@ -84,6 +83,29 @@ fn create_zip_archive(
     }
     zip_file.finish()?;
     destination.pop();
+    Ok(())
+}
+
+fn extract_zip_archive(source: &Path, destination: &Path) -> Result<(), Box<dyn Error>> {
+    let zip_file = File::open(source)?;
+    let mut archive = ZipArchive::new(zip_file)?;
+    if !destination.exists() {
+        std::fs::create_dir(destination)?;
+    }
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let file_name = file.name().to_owned();
+
+        let target_path = destination.join(file_name);
+
+        if let Some(parent_dir) = target_path.parent() {
+            std::fs::create_dir_all(parent_dir)?;
+        }
+
+        let mut output_file = File::create(&target_path)?;
+
+        io::copy(&mut file, &mut output_file)?;
+    }
     Ok(())
 }
 
@@ -166,8 +188,7 @@ pub fn sync_save(
             let cursor = ftp_stream.simple_retr(&(save_filename.clone() + ".zip"))?;
             let vec = cursor.into_inner();
             zip_file.write(&vec)?;
-            let mut zip_archive = ZipArchive::new(&zip_file)?;
-            zip_archive.extract(dirpath)?;
+            extract_zip_archive(&tmp, &dirpath)?;
         } else if server_data.time == data.time {
             println!("Already up to date.")
             // Do nothing

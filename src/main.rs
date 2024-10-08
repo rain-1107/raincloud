@@ -3,7 +3,7 @@
 
 pub mod data;
 pub mod ftp_sync;
-pub mod server_settings;
+pub mod settings;
 
 // TODO: connecting to ftp server and syncing logic
 // TODO: connecting to raincloud server and syncing logic
@@ -87,7 +87,7 @@ struct MyApp {
     ftp: data::FtpDetails,
     saves: Vec<data::SaveUI>,
     editing: i64,
-    server_settings_window: server_settings::ServerSettingsWindow,
+    settings_window: settings::SettingsWindow,
 }
 
 impl Default for MyApp {
@@ -98,7 +98,7 @@ impl Default for MyApp {
             ftp: data.ftp_config,
             saves: data.saves.clone(),
             editing: -1,
-            server_settings_window: server_settings::ServerSettingsWindow::default(),
+            settings_window: settings::SettingsWindow::default(),
         }
     }
 }
@@ -119,7 +119,7 @@ impl eframe::App for MyApp {
                     }
                     if ui.button("Sync All").clicked() {
                         let mut n = 0;
-                        for s in &self.saves {
+                        for _ in &self.saves {
                             to_sync.push(n);
                             n += 1;
                         }
@@ -136,7 +136,7 @@ impl eframe::App for MyApp {
                         self.server = "onedrive".to_string();
                     }
                     if ui.button("Settings").clicked() {
-                        self.server_settings_window.open = true;
+                        self.settings_window.open = true;
                     }
                 });
             });
@@ -184,14 +184,14 @@ impl eframe::App for MyApp {
                     }
                 });
             }
-            if self.server_settings_window.open {
-                let mut ftp = server_settings::FTPSettings {
+            if self.settings_window.open {
+                let mut ftp = settings::FTPSettings {
                     ip: self.ftp.ip.clone(),
                     user: self.ftp.user.clone(),
                     password: self.ftp.passwd.clone(),
                     port: self.ftp.port,
                 };
-                self.server_settings_window.draw(ctx, &mut ftp);
+                self.settings_window.draw(ctx, &mut ftp);
                 self.ftp.ip = ftp.ip.clone();
                 self.ftp.user = ftp.user.clone();
                 self.ftp.passwd = ftp.password.clone();
