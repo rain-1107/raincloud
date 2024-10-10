@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     result::Result,
     str::from_utf8,
+    sync::mpsc,
     time::UNIX_EPOCH,
 };
 use zip::{write::FileOptions, CompressionMethod, ZipArchive, ZipWriter};
@@ -112,6 +113,7 @@ fn extract_zip_archive(source: &Path, destination: &Path) -> Result<(), Box<dyn 
 }
 
 pub fn sync_save_ftp(
+    channel: mpsc::Sender<String>,
     savename: &String,
     directory: &String,
     address: &String,

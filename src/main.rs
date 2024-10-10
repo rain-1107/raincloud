@@ -5,11 +5,35 @@ pub mod data;
 pub mod settings;
 pub mod sync;
 
-use std::sync::mpsc;
+use std::{
+    sync::mpsc::{self, Receiver, Sender},
+    thread::{self, JoinHandle},
+};
+
+struct ThreadData {
+    join_handle: JoinHandle<()>,
+    sender: Sender<String>,
+}
 
 use eframe::egui;
-
 fn main() -> eframe::Result {
+    let n: usize = thread::available_parallelism().unwrap().into();
+    let mut threads: Vec<ThreadData> = Vec::new();
+    let (main_send, main_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
+
+    for id in 1..(n - 1) {
+        let (tx, thread_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
+        let sender = main_send.clone();
+        let handle = thread::spawn(move || {
+            let _err = sender.send("Hello".to_string());
+            println!("Finished {}", id);
+        });
+        let thread = ThreadData {
+            join_handle: handle,
+            sender: tx.clone(),
+        };
+        threads.push(thread);
+    }
     data::check_config_folder();
     data::load_config_data();
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -31,6 +55,11 @@ fn main() -> eframe::Result {
             Ok(Box::<MyApp>::default())
         }),
     );
+    while threads.len() > 0 {
+        println!("{}", main_recv.recv().unwrap());
+        let t = threads.remove(0);
+        let _ = t.join_handle.join();
+    }
     result
 }
 
@@ -87,7 +116,6 @@ struct MyApp {
     saves: Vec<data::SaveUI>,
     editing: i64,
     settings_window: settings::SettingsWindow,
-    // TODO: add threads and channels to keep track of concurrent processes
 }
 
 impl Default for MyApp {
@@ -168,24 +196,7 @@ impl eframe::App for MyApp {
                 self.saves.remove(*num);
             }
             let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
-            for num in to_sync {
-                std::thread::spawn(move || {
-                    let i = num.clone();
-                    let data = data::load_config_data();
-                    let res = sync::sync_save_ftp(
-                        &data.saves[i].name,
-                        &data.saves[i].path,
-                        &data.ftp_config.ip,
-                        &data.ftp_config.user,
-                        &data.ftp_config.passwd,
-                        data.ftp_config.port,
-                    );
-                    match res {
-                        Ok(()) => println!("Success for {}", &data.saves[i].name),
-                        Err(err) => println!("Failed. {}", err),
-                    }
-                });
-            }
+            for num in to_sync {}
             if self.settings_window.open {
                 let mut ftp = settings::FTPSettings {
                     ip: self.ftp.ip.clone(),
@@ -203,9 +214,8 @@ impl eframe::App for MyApp {
     }
 
     fn on_exit(&mut self, _: std::option::Option<&eframe::glow::Context>) {
-        data::purge_tmp_folder().unwrap();
-        let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
-        // TODO: Handle any threads still running
+        let _err = data::purge_tmp_folder();
+        let _err = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
         println!("Saved data");
     }
 }

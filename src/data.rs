@@ -13,6 +13,7 @@ pub fn purge_tmp_folder() -> Result<(), Box<dyn Error>> {
     path.push(CONFIG_DIR);
     path.push("tmp");
     fs::remove_dir_all(&path)?;
+    fs::create_dir(&path)?;
     Ok(())
 }
 pub fn check_config_folder() {
