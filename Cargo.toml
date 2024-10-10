@@ -17,6 +17,10 @@ zip = "2.2.0"
 ftp = "3.0.1"
 pathdiff = "0.2.1"
 chrono = "0.4.38"
+thread_local = "1.1.4"
+regex = "1.5.5"
+time = "0.2.23"
+
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
