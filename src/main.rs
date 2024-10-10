@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(rustdoc::missing_crate_level_docs)]
+#![allow(rustdoc::missing_crate_level_docs, unused_variables)]
 
 pub mod data;
 pub mod settings;
 pub mod sync;
 
+use core::panic;
+use eframe::egui;
 use std::{
     sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
@@ -15,7 +17,6 @@ struct ThreadData {
     sender: Sender<String>,
 }
 
-use eframe::egui;
 fn main() -> eframe::Result {
     let n: usize = thread::available_parallelism().unwrap().into();
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -24,10 +25,37 @@ fn main() -> eframe::Result {
     for id in 1..(n - 1) {
         let (tx, thread_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
         let sender = main_send.clone();
-        let handle = thread::spawn(move || {
-            let _err = sender.send("Hello".to_string());
-            println!("Finished {}", id);
-        });
+        let handle = thread::Builder::new()
+            .name(format!("Worker thread {id}").to_string())
+            .spawn(move || {
+                let mut running = true;
+                while running {
+                    let _err = sender.send("free".to_string());
+                    let data: String = thread_recv.recv().unwrap();
+                    let mut data_iter = data.split(";");
+                    let command = data_iter.next().unwrap();
+                    match command {
+                        "sync" => {
+                            let save_num: usize = data_iter.next().unwrap().parse().unwrap();
+                            let data = data::load_config_data();
+                            sync::sync_save_ftp(
+                                &sender,
+                                save_num,
+                                &data.saves[save_num].name,
+                                &data.saves[save_num].path,
+                                &data.ftp_config.ip,
+                                &data.ftp_config.user,
+                                &data.ftp_config.passwd,
+                                data.ftp_config.port,
+                            )
+                            .unwrap();
+                        }
+                        "kill" => running = false,
+                        _ => panic!("Invalid command sent to thread"),
+                    }
+                }
+            })
+            .unwrap();
         let thread = ThreadData {
             join_handle: handle,
             sender: tx.clone(),
@@ -36,12 +64,17 @@ fn main() -> eframe::Result {
     }
     data::check_config_folder();
     data::load_config_data();
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    env_logger::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
             .with_resizable(true)
             .with_maximize_button(false),
+        ..Default::default()
+    };
+    let app = MyApp {
+        threads,
+        thread_recv: main_recv,
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -52,30 +85,47 @@ fn main() -> eframe::Result {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             cc.egui_ctx.set_pixels_per_point(2.0);
             cc.egui_ctx.set_zoom_factor(1.0);
-            Ok(Box::<MyApp>::default())
+            Ok(Box::new(app))
         }),
     );
-    while threads.len() > 0 {
-        println!("{}", main_recv.recv().unwrap());
-        let t = threads.remove(0);
-        let _ = t.join_handle.join();
-    }
     result
 }
 
-struct SaveData {
+struct SaveInfo {
     to_delete: bool,
     editing: bool,
+    sync_info: String,
     sync_request: bool,
+    syncing: bool,
+    thread: usize,
+}
+impl Default for SaveInfo {
+    fn default() -> Self {
+        Self {
+            to_delete: false,
+            editing: false,
+            sync_info: "".to_string(),
+            sync_request: false,
+            syncing: false,
+            thread: 0,
+        }
+    }
+}
+impl Clone for SaveInfo {
+    fn clone(&self) -> Self {
+        Self {
+            thread: self.thread,
+            to_delete: self.to_delete,
+            editing: self.editing,
+            sync_info: self.sync_info.clone(),
+            sync_request: self.sync_request,
+            syncing: false,
+        }
+    }
 }
 
 impl data::SaveUI {
-    fn display(&mut self, ui: &mut egui::Ui, edit: bool) -> SaveData {
-        let mut data = SaveData {
-            to_delete: false,
-            editing: edit,
-            sync_request: false,
-        };
+    fn display(&mut self, ui: &mut egui::Ui, data: &mut SaveInfo) -> SaveInfo {
         ui.horizontal(|ui| {
             if data.editing {
                 ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.name));
@@ -106,7 +156,7 @@ impl data::SaveUI {
                 data.to_delete = true;
             }
         });
-        data
+        data.clone()
     }
 }
 
@@ -114,19 +164,28 @@ struct MyApp {
     server: String,
     ftp: data::FtpDetails,
     saves: Vec<data::SaveUI>,
-    editing: i64,
+    save_info: Vec<SaveInfo>,
     settings_window: settings::SettingsWindow,
+    threads: Vec<ThreadData>,
+    thread_recv: Receiver<String>,
 }
 
 impl Default for MyApp {
     fn default() -> Self {
         let data = data::load_config_data();
+        let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+        let mut save_info = Vec::new();
+        for save in &data.saves {
+            save_info.push(SaveInfo::default());
+        }
         Self {
             server: data.server,
             ftp: data.ftp_config,
             saves: data.saves.clone(),
-            editing: -1,
+            save_info,
             settings_window: settings::SettingsWindow::default(),
+            threads: Vec::new(),
+            thread_recv: rx,
         }
     }
 }
@@ -144,7 +203,6 @@ impl eframe::App for MyApp {
                             path: "".to_string(),
                         };
                         self.saves.push(s);
-                        self.editing = (self.saves.len() - 1) as i64;
                     }
                     if ui.button("Sync All").clicked() {
                         let mut n = 0;
@@ -174,29 +232,41 @@ impl eframe::App for MyApp {
             if self.saves.len() == 0 {
                 ui.label("No saves to show");
             }
-            // TODO: implement info text recieved from threads of saves
             for mut save in &mut self.saves {
-                let data = data::SaveUI::display(&mut save, ui, i == self.editing as usize);
+                let result = (); // TODO: get text from specific thread
+                let mut data = data::SaveUI::display(&mut save, ui, &mut self.save_info[i]);
                 if data.to_delete {
                     to_remove.push(i);
                 }
-                if data.sync_request && !to_sync.contains(&i) {
+                if data.sync_request && !to_sync.contains(&i) && !self.save_info[i].syncing {
+                    data.syncing = true;
+                    data.sync_request = false;
                     to_sync.push(i);
                 }
-                if data.editing {
-                    self.editing = i as i64;
-                } else {
-                    if self.editing == i as i64 {
-                        self.editing = -1
-                    }
-                }
+                self.save_info[i] = data.clone();
                 i += 1;
             }
             for num in &mut to_remove {
                 self.saves.remove(*num);
             }
             let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
-            for num in to_sync {}
+            for num in to_sync {
+                let mut i = 0;
+                for t in &self.threads {
+                    let result = self.thread_recv.try_recv();
+                    match result {
+                        Ok(str) => {
+                            if str == "free".to_string() {
+                                t.sender.send(format!("sync;{}", num)).unwrap();
+                                self.save_info[i].thread = i;
+                                break;
+                            };
+                        }
+                        Err(err) => (),
+                    }
+                    i += 1;
+                }
+            }
             if self.settings_window.open {
                 let mut ftp = settings::FTPSettings {
                     ip: self.ftp.ip.clone(),
@@ -216,6 +286,11 @@ impl eframe::App for MyApp {
     fn on_exit(&mut self, _: std::option::Option<&eframe::glow::Context>) {
         let _err = data::purge_tmp_folder();
         let _err = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
+        while self.threads.len() > 0 {
+            let t = self.threads.remove(0);
+            let _ = t.sender.send("kill".to_string());
+            let _ = t.join_handle.join();
+        }
         println!("Saved data");
     }
 }
