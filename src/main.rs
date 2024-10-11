@@ -12,6 +12,8 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+const SCALE: f32 = 1.5;
+
 struct ThreadData {
     join_handle: JoinHandle<()>,
     sender: Sender<String>,
@@ -19,28 +21,41 @@ struct ThreadData {
 }
 
 fn main() -> eframe::Result {
-    let n: usize = thread::available_parallelism().unwrap().into();
+    let available_threads: usize = thread::available_parallelism().unwrap().into();
     let mut threads: Vec<ThreadData> = Vec::new();
 
-    for id in 1..(n - 1) {
-        let (sender, thread_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
-        let (thread_send, recv): (Sender<String>, Receiver<String>) = mpsc::channel();
+    for id in 0..available_threads {
+        let (send_to_main, recv_from_thread): (Sender<String>, Receiver<String>) = mpsc::channel();
+        let (send_to_thread, recv_from_main): (Sender<String>, Receiver<String>) = mpsc::channel();
 
         let handle = thread::Builder::new()
             .name(format!("Worker thread {id}").to_string())
             .spawn(move || {
                 let mut running = true;
                 while running {
-                    let _err = sender.send("free".to_string());
-                    let data: String = recv.recv().unwrap();
+                    send_to_main
+                        .send("free".to_string())
+                        .expect("Sending 'free' message to main");
+                    let result = recv_from_main.recv();
+                    let data: String;
+                    match result {
+                        Ok(text) => data = text,
+                        Err(err) => {
+                            continue;
+                        }
+                    }
                     let mut data_iter = data.split(";");
-                    let command = data_iter.next().unwrap();
+                    let command = data_iter.next().expect("Getting command from message");
                     match command {
                         "sync" => {
-                            let save_num: usize = data_iter.next().unwrap().parse().unwrap();
+                            let save_num: usize = data_iter
+                                .next()
+                                .expect("Getting save number")
+                                .parse()
+                                .expect("Casting to usize");
                             let data = data::load_config_data();
-                            sync::sync_save_ftp(
-                                &sender,
+                            let result = sync::sync_save_ftp(
+                                &send_to_main,
                                 save_num,
                                 &data.saves[save_num].name,
                                 &data.saves[save_num].path,
@@ -48,10 +63,19 @@ fn main() -> eframe::Result {
                                 &data.ftp_config.user,
                                 &data.ftp_config.passwd,
                                 data.ftp_config.port,
-                            )
-                            .unwrap();
+                            );
+                            match result {
+                                Ok(_) => (),
+                                Err(err) => println!("{}", err),
+                            }
+                            send_to_main
+                                .send("done".to_string())
+                                .expect("Failed to send 'done' message to main");
                         }
-                        "kill" => running = false,
+                        "join" => {
+                            println!("Joining thread {}", id);
+                            running = false
+                        }
                         _ => panic!("Invalid command sent to thread"),
                     }
                 }
@@ -59,8 +83,8 @@ fn main() -> eframe::Result {
             .unwrap();
         let thread = ThreadData {
             join_handle: handle,
-            sender: thread_send.clone(),
-            receiver: thread_recv,
+            sender: send_to_thread,
+            receiver: recv_from_thread,
         };
         threads.push(thread);
     }
@@ -70,7 +94,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
-            .with_resizable(true)
+            .with_resizable(false)
             .with_maximize_button(false),
         ..Default::default()
     };
@@ -84,7 +108,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            cc.egui_ctx.set_pixels_per_point(2.0);
+            cc.egui_ctx.set_pixels_per_point(SCALE);
             cc.egui_ctx.set_zoom_factor(1.0);
             Ok(Box::new(app))
         }),
@@ -120,7 +144,7 @@ impl Clone for SaveInfo {
             editing: self.editing,
             sync_info: self.sync_info.clone(),
             sync_request: self.sync_request,
-            syncing: false,
+            syncing: self.syncing,
         }
     }
 }
@@ -156,6 +180,7 @@ impl data::SaveUI {
             if ui.button("Delete").clicked() {
                 data.to_delete = true;
             }
+            ui.label(&data.sync_info);
         });
         data.clone()
     }
@@ -201,7 +226,9 @@ impl eframe::App for MyApp {
                             name: "".to_string(),
                             path: "".to_string(),
                         };
+                        let info = SaveInfo::default();
                         self.saves.push(s);
+                        self.save_info.push(info);
                     }
                     if ui.button("Sync All").clicked() {
                         let mut n = 0;
@@ -227,47 +254,63 @@ impl eframe::App for MyApp {
                 });
             });
             let mut to_remove = Vec::new();
-            let mut i: usize = 0;
+            let mut save_num: usize = 0;
             if self.saves.len() == 0 {
                 ui.label("No saves to show");
             }
             for mut save in &mut self.saves {
-                let result = self.threads[self.save_info[i].thread].receiver.try_recv(); // TODO: get text from specific thread
-                match result {
-                    Ok(text) => {}
-                    Err(err) => (),
+                if self.save_info[save_num].syncing {
+                    let result = self.threads[self.save_info[save_num].thread]
+                        .receiver
+                        .try_recv();
+                    match result {
+                        Ok(text) => {
+                            println!("{}", text);
+                            if text == "done".to_string() {
+                                self.save_info[save_num].syncing = false;
+                            } else {
+                                self.save_info[save_num].sync_info = text;
+                            }
+                        }
+                        Err(err) => (),
+                    }
                 }
-                let mut data = data::SaveUI::display(&mut save, ui, &mut self.save_info[i]);
-                if data.to_delete {
-                    to_remove.push(i);
+                self.save_info[save_num] =
+                    data::SaveUI::display(&mut save, ui, &mut self.save_info[save_num]);
+                if self.save_info[save_num].to_delete {
+                    to_remove.push(save_num);
                 }
-                if data.sync_request && !to_sync.contains(&i) && !self.save_info[i].syncing {
-                    data.syncing = true;
-                    data.sync_request = false;
-                    to_sync.push(i);
+                if self.save_info[save_num].sync_request
+                    && !to_sync.contains(&save_num)
+                    && !self.save_info[save_num].syncing
+                {
+                    self.save_info[save_num].syncing = true;
+                    self.save_info[save_num].sync_request = false;
+                    to_sync.push(save_num);
                 }
-                self.save_info[i] = data.clone();
-                i += 1;
+                save_num += 1;
             }
-            for num in &mut to_remove {
-                self.saves.remove(*num);
+            for save_num in &mut to_remove {
+                self.save_info.remove(*save_num);
+                self.saves.remove(*save_num);
             }
             let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
-            for num in to_sync {
-                let mut i = 0;
+            for save_num in to_sync {
+                let mut thread_num = 0;
                 for t in &self.threads {
                     let result = t.receiver.try_recv();
+                    println!("Initialising work on thread {}", thread_num);
                     match result {
                         Ok(str) => {
                             if str == "free".to_string() {
-                                t.sender.send(format!("sync;{}", num)).unwrap();
-                                self.save_info[i].thread = i;
+                                t.sender.send(format!("sync;{}", save_num)).unwrap();
+                                self.save_info[save_num].thread = thread_num;
                                 break;
                             };
                         }
                         Err(err) => (),
                     }
-                    i += 1;
+                    thread_num += 1;
                 }
             }
             if self.settings_window.open {
@@ -291,7 +334,7 @@ impl eframe::App for MyApp {
         let _err = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
         while self.threads.len() > 0 {
             let t = self.threads.remove(0);
-            let _ = t.sender.send("kill".to_string());
+            let _ = t.sender.send("join".to_string());
             let _ = t.join_handle.join();
         }
         println!("Saved data");

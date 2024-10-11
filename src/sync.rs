@@ -57,6 +57,7 @@ fn create_zip_archive(
     srcpath: &PathBuf,
     destination: &mut PathBuf,
 ) -> Result<(), Box<dyn Error>> {
+    destination.push(name);
     let zip_path = fs::File::create(&destination)?;
     let mut zip_file = ZipWriter::new(zip_path);
     let options: zip::write::FileOptions<zip::write::ExtendedFileOptions> =
@@ -130,19 +131,20 @@ pub fn sync_save_ftp(
     tmp.push(savename.to_string() + "-" + &Local::now().date_naive().to_string() + ".json");
     fs::write(&tmp, &j).expect("Unable to write file");
     tmp.pop();
-    let _ = channel.send("Logging in to FTP server".to_string());
-    let mut ftp_stream = FtpStream::connect(address.to_string() + ":" + &port.to_string())
-        .unwrap_or_else(|err| panic!("{}", err));
+    channel.send("Connecting to FTP server".to_string())?;
+    let mut ftp_stream = FtpStream::connect(address.to_string() + ":" + &port.to_string())?;
+    channel.send("Logging in to FTP server".to_string())?;
     ftp_stream.login(username, password)?;
     if !ftp_stream
         .nlst(None)?
         .contains(&"raincloud-saves".to_string())
     {
+        channel.send("Making cloud folder".to_string())?;
         ftp_stream.mkdir("raincloud-saves")?;
     }
     ftp_stream.cwd("raincloud-saves")?;
     if !ftp_stream.nlst(None)?.contains(savename) {
-        let _ = channel.send("Making save folder".to_string());
+        channel.send("Making save folder".to_string())?;
         ftp_stream.mkdir(savename)?;
     }
     ftp_stream.cwd(savename)?;
@@ -157,28 +159,28 @@ pub fn sync_save_ftp(
     let save_filename: String = savename.to_owned() + "-" + &Local::now().date_naive().to_string();
 
     if json_f == "".to_string() {
-        let _ = channel
-            .send(format!("{};Previous save not found, uploading save", save_index).to_string());
+        channel.send("Previous save not found, uploading save".to_string())?;
         create_zip_archive(&(save_filename.clone() + ".zip"), &dirpath, &mut tmp)?;
-        let _ = channel.send("Zip archive created".to_string());
+        channel.send("Zip archive created".to_string())?;
         tmp.push(&(save_filename.clone() + ".zip"));
         let mut zip_file = fs::File::open(&tmp)?;
         tmp.pop();
         tmp.push(&(save_filename.clone() + ".json"));
         let json_file_data = serde_json::to_string(&data)?;
         fs::write(&tmp, &json_file_data)?;
-        let _ = channel.send("Created json file.".to_string());
+        channel.send("Created json file.".to_string())?;
         let mut json_file = fs::File::open(&tmp)?;
         ftp_stream.put(&(save_filename.clone() + ".json"), &mut json_file)?;
         ftp_stream.put(&(save_filename.clone() + ".zip"), &mut zip_file)?;
+        channel.send("Save uploaded to cloud.".to_string())?;
     } else {
-        let _ = channel.send("Checking date of previous save".to_string());
+        channel.send("Checking date of previous save".to_string())?;
         let cursor = ftp_stream.simple_retr(&json_f)?;
         let vec = cursor.into_inner();
         let file = from_utf8(&vec)?;
         let server_data: SaveData = serde_json::from_str(&file)?;
         if server_data.time > data.time {
-            let _ = channel.send("Downloading previous save".to_string());
+            channel.send("Downloading previous save".to_string())?;
             tmp.push(&(save_filename.clone() + ".zip"));
             let mut zip_file = fs::File::create(&tmp)?;
             let cursor = ftp_stream.simple_retr(&(save_filename.clone() + ".zip"))?;
@@ -186,10 +188,10 @@ pub fn sync_save_ftp(
             zip_file.write(&vec)?;
             extract_zip_archive(&tmp, &dirpath)?;
         } else if server_data.time == data.time {
-            let _ = channel.send("Already up to date.".to_string());
+            channel.send("Already up to date.".to_string())?;
             // Do nothing
         } else {
-            let _ = channel.send("Uploading local save to cloud".to_string());
+            channel.send("Uploading local save to cloud".to_string())?;
             for item in ftp_stream.nlst(None)? {
                 let _ = ftp_stream.rm(&item);
             }
@@ -205,9 +207,9 @@ pub fn sync_save_ftp(
             let mut json_file = fs::File::open(&tmp)?;
             ftp_stream.put(&(save_filename.clone() + ".json"), &mut json_file)?;
             ftp_stream.put(&(save_filename.clone() + ".zip"), &mut zip_file)?;
+            channel.send("Save uploaded to cloud.".to_string())?;
         }
     }
     ftp_stream.quit()?;
-    let _ = channel.send("done".to_string());
     Ok(())
 }
