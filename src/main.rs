@@ -218,6 +218,9 @@ impl Default for MyApp {
 }
 
 impl eframe::App for MyApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::TRANSPARENT.to_array() // Make sure we don't paint anything behind the rounded corners
+    }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut to_sync = Vec::new();
         let panel_frame = egui::Frame {
@@ -233,7 +236,7 @@ impl eframe::App for MyApp {
                 let menu_bar_response = ui.interact(
                     egui::Rect::from_points(&[
                         Pos2::new(0.0, 0.0),
-                        Pos2::new(ui.max_rect().left(), 32.0),
+                        Pos2::new(ui.max_rect().right(), 32.0),
                     ]),
                     egui::Id::new("title_bar"),
                     egui::Sense::click_and_drag(),
@@ -278,7 +281,7 @@ impl eframe::App for MyApp {
                         if ui.button("❌").clicked() {
                             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                         }
-                    })
+                    });
                 });
                 let mut to_remove = Vec::new();
                 let mut save_num: usize = 0;
