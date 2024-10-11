@@ -28,7 +28,8 @@ impl SettingsWindow {
             egui::ViewportBuilder::default()
                 .with_title("Server Settings")
                 .with_inner_size([200.0, 250.0])
-                .with_resizable(false),
+                .with_resizable(false)
+                .with_decorations(false),
             |ctx, class| {
                 assert!(
                     class == egui::ViewportClass::Immediate,
@@ -38,7 +39,7 @@ impl SettingsWindow {
                     fill: ctx.style().visuals.window_fill(),
                     rounding: 7.5.into(),
                     stroke: ctx.style().visuals.widgets.noninteractive.fg_stroke,
-                    inner_margin: 5.0.into(),
+                    inner_margin: 7.5.into(),
                     ..Default::default()
                 };
                 egui::CentralPanel::default()

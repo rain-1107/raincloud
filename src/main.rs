@@ -227,7 +227,7 @@ impl eframe::App for MyApp {
             fill: ctx.style().visuals.window_fill(),
             rounding: 7.5.into(),
             stroke: ctx.style().visuals.widgets.noninteractive.fg_stroke,
-            inner_margin: 5.0.into(),
+            inner_margin: 7.5.into(),
             ..Default::default()
         };
         egui::CentralPanel::default()
