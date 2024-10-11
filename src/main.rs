@@ -97,7 +97,8 @@ fn main() -> eframe::Result {
             .with_inner_size([1280.0, 720.0])
             .with_resizable(false)
             .with_maximize_button(false)
-            .with_decorations(false),
+            .with_decorations(false)
+            .with_transparent(true),
         ..Default::default()
     };
     let app = MyApp {
@@ -219,125 +220,140 @@ impl Default for MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut to_sync = Vec::new();
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let menu_bar_response = ui.interact(
-                egui::Rect::from_points(&[Pos2::new(0.0, 0.0), Pos2::new(1000.0, 30.0)]),
-                egui::Id::new("title_bar"),
-                egui::Sense::click_and_drag(),
-            );
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("Saves", |ui| {
-                    if ui.button("New").clicked() {
-                        let s = data::SaveUI {
-                            name: "".to_string(),
-                            path: "".to_string(),
-                        };
-                        let info = SaveInfo::default();
-                        self.saves.push(s);
-                        self.save_info.push(info);
-                    }
-                    if ui.button("Sync All").clicked() {
-                        let mut n = 0;
-                        for _ in &self.saves {
-                            to_sync.push(n);
-                            n += 1;
+        let panel_frame = egui::Frame {
+            fill: ctx.style().visuals.window_fill(),
+            rounding: 7.5.into(),
+            stroke: ctx.style().visuals.widgets.noninteractive.fg_stroke,
+            inner_margin: 5.0.into(),
+            ..Default::default()
+        };
+        egui::CentralPanel::default()
+            .frame(panel_frame)
+            .show(ctx, |ui| {
+                let menu_bar_response = ui.interact(
+                    egui::Rect::from_points(&[
+                        Pos2::new(0.0, 0.0),
+                        Pos2::new(ui.max_rect().left(), 32.0),
+                    ]),
+                    egui::Id::new("title_bar"),
+                    egui::Sense::click_and_drag(),
+                );
+                if menu_bar_response.drag_started_by(egui::PointerButton::Primary) {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                egui::menu::bar(ui, |ui| {
+                    ui.menu_button("Saves", |ui| {
+                        if ui.button("New").clicked() {
+                            let s = data::SaveUI {
+                                name: "".to_string(),
+                                path: "".to_string(),
+                            };
+                            let info = SaveInfo::default();
+                            self.saves.push(s);
+                            self.save_info.push(info);
                         }
-                    }
-                });
-                ui.menu_button("Server", |ui| {
-                    ui.label("Selected Server");
-                    let mut temp = self.server == "ftp".to_string();
-                    if ui.checkbox(&mut temp, "FTP").clicked() && temp {
-                        self.server = "ftp".to_string();
-                    }
-                    let mut temp = self.server == "onedrive".to_string();
-                    if ui.checkbox(&mut temp, "Onedrive").clicked() && temp {
-                        self.server = "onedrive".to_string();
-                    }
-                    if ui.button("Settings").clicked() {
-                        self.settings_window.open = true;
-                    }
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    if ui.button("❌").clicked() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                })
-            });
-            let mut to_remove = Vec::new();
-            let mut save_num: usize = 0;
-            if self.saves.len() == 0 {
-                ui.label("No saves to show");
-            }
-            for mut save in &mut self.saves {
-                if self.save_info[save_num].syncing {
-                    let result = self.threads[self.save_info[save_num].thread]
-                        .receiver
-                        .try_recv();
-                    match result {
-                        Ok(text) => {
-                            println!("{}", text);
-                            if text == "done".to_string() {
-                                self.save_info[save_num].syncing = false;
-                            } else {
-                                self.save_info[save_num].sync_info = text;
+                        if ui.button("Sync All").clicked() {
+                            let mut n = 0;
+                            for _ in &self.saves {
+                                to_sync.push(n);
+                                n += 1;
                             }
                         }
-                        Err(err) => (),
-                    }
-                }
-                self.save_info[save_num] =
-                    data::SaveUI::display(&mut save, ui, &mut self.save_info[save_num]);
-                if self.save_info[save_num].to_delete {
-                    to_remove.push(save_num);
-                }
-                if self.save_info[save_num].sync_request
-                    && !to_sync.contains(&save_num)
-                    && !self.save_info[save_num].syncing
-                {
-                    self.save_info[save_num].syncing = true;
-                    self.save_info[save_num].sync_request = false;
-                    to_sync.push(save_num);
-                }
-                save_num += 1;
-            }
-            for save_num in &mut to_remove {
-                self.save_info.remove(*save_num);
-                self.saves.remove(*save_num);
-            }
-            let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
-            for save_num in to_sync {
-                let mut thread_num = 0;
-                for t in &self.threads {
-                    let result = t.receiver.try_recv();
-                    println!("Initialising work on thread {}", thread_num);
-                    match result {
-                        Ok(str) => {
-                            if str == "free".to_string() {
-                                t.sender.send(format!("sync;{}", save_num)).unwrap();
-                                self.save_info[save_num].thread = thread_num;
-                                break;
-                            };
+                    });
+                    ui.menu_button("Server", |ui| {
+                        ui.label("Selected Server");
+                        let mut temp = self.server == "ftp".to_string();
+                        if ui.checkbox(&mut temp, "FTP").clicked() && temp {
+                            self.server = "ftp".to_string();
                         }
-                        Err(err) => (),
-                    }
-                    thread_num += 1;
+                        let mut temp = self.server == "onedrive".to_string();
+                        if ui.checkbox(&mut temp, "Onedrive").clicked() && temp {
+                            self.server = "onedrive".to_string();
+                        }
+                        if ui.button("Settings").clicked() {
+                            self.settings_window.open = true;
+                        }
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        if ui.button("❌").clicked() {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    })
+                });
+                let mut to_remove = Vec::new();
+                let mut save_num: usize = 0;
+                if self.saves.len() == 0 {
+                    ui.label("No saves to show");
                 }
-            }
-            if self.settings_window.open {
-                let mut ftp = settings::FTPSettings {
-                    ip: self.ftp.ip.clone(),
-                    user: self.ftp.user.clone(),
-                    password: self.ftp.passwd.clone(),
-                    port: self.ftp.port,
-                };
-                self.settings_window.draw(ctx, &mut ftp);
-                self.ftp.ip = ftp.ip.clone();
-                self.ftp.user = ftp.user.clone();
-                self.ftp.passwd = ftp.password.clone();
-                self.ftp.port = ftp.port;
-            }
-        });
+                for mut save in &mut self.saves {
+                    if self.save_info[save_num].syncing {
+                        let result = self.threads[self.save_info[save_num].thread]
+                            .receiver
+                            .try_recv();
+                        match result {
+                            Ok(text) => {
+                                println!("{}", text);
+                                if text == "done".to_string() {
+                                    self.save_info[save_num].syncing = false;
+                                } else {
+                                    self.save_info[save_num].sync_info = text;
+                                }
+                            }
+                            Err(err) => (),
+                        }
+                    }
+                    self.save_info[save_num] =
+                        data::SaveUI::display(&mut save, ui, &mut self.save_info[save_num]);
+                    if self.save_info[save_num].to_delete {
+                        to_remove.push(save_num);
+                    }
+                    if self.save_info[save_num].sync_request
+                        && !to_sync.contains(&save_num)
+                        && !self.save_info[save_num].syncing
+                    {
+                        self.save_info[save_num].syncing = true;
+                        self.save_info[save_num].sync_request = false;
+                        to_sync.push(save_num);
+                    }
+                    save_num += 1;
+                }
+                for save_num in &mut to_remove {
+                    self.save_info.remove(*save_num);
+                    self.saves.remove(*save_num);
+                }
+                let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
+                for save_num in to_sync {
+                    let mut thread_num = 0;
+                    for t in &self.threads {
+                        let result = t.receiver.try_recv();
+                        println!("Initialising work on thread {}", thread_num);
+                        match result {
+                            Ok(str) => {
+                                if str == "free".to_string() {
+                                    t.sender.send(format!("sync;{}", save_num)).unwrap();
+                                    self.save_info[save_num].thread = thread_num;
+                                    break;
+                                };
+                            }
+                            Err(err) => (),
+                        }
+                        thread_num += 1;
+                    }
+                }
+                if self.settings_window.open {
+                    let mut ftp = settings::FTPSettings {
+                        ip: self.ftp.ip.clone(),
+                        user: self.ftp.user.clone(),
+                        password: self.ftp.passwd.clone(),
+                        port: self.ftp.port,
+                    };
+                    self.settings_window.draw(ctx, &mut ftp);
+                    self.ftp.ip = ftp.ip.clone();
+                    self.ftp.user = ftp.user.clone();
+                    self.ftp.passwd = ftp.password.clone();
+                    self.ftp.port = ftp.port;
+                }
+            });
     }
 
     fn on_exit(&mut self, _: std::option::Option<&eframe::glow::Context>) {
