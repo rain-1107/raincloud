@@ -113,7 +113,6 @@ pub fn sync_save_ftp(
     password: &String,
     port: u16,
 ) -> Result<(), Box<dyn Error>> {
-    // TODO: send info messages to main thread
     let mut tmp = home::home_dir().unwrap();
     tmp.push(CONFIG_DIR);
     tmp.push("tmp");

@@ -7,6 +7,7 @@ pub mod sync;
 
 use core::panic;
 use eframe::egui;
+use egui::Pos2;
 use std::{
     sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
@@ -95,7 +96,8 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
             .with_resizable(false)
-            .with_maximize_button(false),
+            .with_maximize_button(false)
+            .with_decorations(false),
         ..Default::default()
     };
     let app = MyApp {
@@ -218,7 +220,11 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut to_sync = Vec::new();
         egui::CentralPanel::default().show(ctx, |ui| {
-            // TODO: add custom window top thing
+            let menu_bar_response = ui.interact(
+                egui::Rect::from_points(&[Pos2::new(0.0, 0.0), Pos2::new(1000.0, 30.0)]),
+                egui::Id::new("title_bar"),
+                egui::Sense::click_and_drag(),
+            );
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Saves", |ui| {
                     if ui.button("New").clicked() {
@@ -252,6 +258,11 @@ impl eframe::App for MyApp {
                         self.settings_window.open = true;
                     }
                 });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui.button("❌").clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                })
             });
             let mut to_remove = Vec::new();
             let mut save_num: usize = 0;
