@@ -15,23 +15,24 @@ use std::{
 struct ThreadData {
     join_handle: JoinHandle<()>,
     sender: Sender<String>,
+    receiver: Receiver<String>,
 }
 
 fn main() -> eframe::Result {
     let n: usize = thread::available_parallelism().unwrap().into();
     let mut threads: Vec<ThreadData> = Vec::new();
-    let (main_send, main_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     for id in 1..(n - 1) {
-        let (tx, thread_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
-        let sender = main_send.clone();
+        let (sender, thread_recv): (Sender<String>, Receiver<String>) = mpsc::channel();
+        let (thread_send, recv): (Sender<String>, Receiver<String>) = mpsc::channel();
+
         let handle = thread::Builder::new()
             .name(format!("Worker thread {id}").to_string())
             .spawn(move || {
                 let mut running = true;
                 while running {
                     let _err = sender.send("free".to_string());
-                    let data: String = thread_recv.recv().unwrap();
+                    let data: String = recv.recv().unwrap();
                     let mut data_iter = data.split(";");
                     let command = data_iter.next().unwrap();
                     match command {
@@ -58,7 +59,8 @@ fn main() -> eframe::Result {
             .unwrap();
         let thread = ThreadData {
             join_handle: handle,
-            sender: tx.clone(),
+            sender: thread_send.clone(),
+            receiver: thread_recv,
         };
         threads.push(thread);
     }
@@ -74,7 +76,6 @@ fn main() -> eframe::Result {
     };
     let app = MyApp {
         threads,
-        thread_recv: main_recv,
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -167,7 +168,6 @@ struct MyApp {
     save_info: Vec<SaveInfo>,
     settings_window: settings::SettingsWindow,
     threads: Vec<ThreadData>,
-    thread_recv: Receiver<String>,
 }
 
 impl Default for MyApp {
@@ -185,7 +185,6 @@ impl Default for MyApp {
             save_info,
             settings_window: settings::SettingsWindow::default(),
             threads: Vec::new(),
-            thread_recv: rx,
         }
     }
 }
@@ -233,7 +232,11 @@ impl eframe::App for MyApp {
                 ui.label("No saves to show");
             }
             for mut save in &mut self.saves {
-                let result = (); // TODO: get text from specific thread
+                let result = self.threads[self.save_info[i].thread].receiver.try_recv(); // TODO: get text from specific thread
+                match result {
+                    Ok(text) => {}
+                    Err(err) => (),
+                }
                 let mut data = data::SaveUI::display(&mut save, ui, &mut self.save_info[i]);
                 if data.to_delete {
                     to_remove.push(i);
@@ -253,7 +256,7 @@ impl eframe::App for MyApp {
             for num in to_sync {
                 let mut i = 0;
                 for t in &self.threads {
-                    let result = self.thread_recv.try_recv();
+                    let result = t.receiver.try_recv();
                     match result {
                         Ok(str) => {
                             if str == "free".to_string() {
