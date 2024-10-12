@@ -37,8 +37,9 @@ impl SettingsWindow {
                 );
                 let panel_frame = egui::Frame {
                     fill: ctx.style().visuals.window_fill(),
-                    rounding: 7.5.into(),
+                    rounding: 5.0.into(),
                     stroke: ctx.style().visuals.widgets.noninteractive.fg_stroke,
+                    outer_margin: 0.5.into(),
                     inner_margin: 7.5.into(),
                     ..Default::default()
                 };
@@ -48,7 +49,7 @@ impl SettingsWindow {
                         let menu_bar_response = ui.interact(
                             egui::Rect::from_points(&[
                                 egui::Pos2::new(0.0, 0.0),
-                                egui::Pos2::new(ui.max_rect().right(), 32.0),
+                                egui::Pos2::new(ui.max_rect().right(), 20.0),
                             ]),
                             egui::Id::new("settings_title_bar"),
                             egui::Sense::click_and_drag(),

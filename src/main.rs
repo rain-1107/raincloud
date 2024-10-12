@@ -194,6 +194,7 @@ struct MyApp {
     ftp: data::FtpDetails,
     saves: Vec<data::SaveUI>,
     save_info: Vec<SaveInfo>,
+    sync_queue: Vec<usize>,
     settings_window: settings::SettingsWindow,
     threads: Vec<ThreadData>,
 }
@@ -211,6 +212,7 @@ impl Default for MyApp {
             ftp: data.ftp_config,
             saves: data.saves.clone(),
             save_info,
+            sync_queue: Vec::new(),
             settings_window: settings::SettingsWindow::default(),
             threads: Vec::new(),
         }
@@ -222,11 +224,11 @@ impl eframe::App for MyApp {
         egui::Rgba::TRANSPARENT.to_array() // Make sure we don't paint anything behind the rounded corners
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut to_sync = Vec::new();
         let panel_frame = egui::Frame {
             fill: ctx.style().visuals.window_fill(),
-            rounding: 7.5.into(),
+            rounding: 5.0.into(),
             stroke: ctx.style().visuals.widgets.noninteractive.fg_stroke,
+            outer_margin: 0.5.into(),
             inner_margin: 7.5.into(),
             ..Default::default()
         };
@@ -236,7 +238,7 @@ impl eframe::App for MyApp {
                 let menu_bar_response = ui.interact(
                     egui::Rect::from_points(&[
                         Pos2::new(0.0, 0.0),
-                        Pos2::new(ui.max_rect().right(), 32.0),
+                        Pos2::new(ui.max_rect().right(), 20.0),
                     ]),
                     egui::Id::new("title_bar"),
                     egui::Sense::click_and_drag(),
@@ -258,7 +260,7 @@ impl eframe::App for MyApp {
                         if ui.button("Sync All").clicked() {
                             let mut n = 0;
                             for _ in &self.saves {
-                                to_sync.push(n);
+                                self.sync_queue.push(n);
                                 n += 1;
                             }
                         }
@@ -311,12 +313,12 @@ impl eframe::App for MyApp {
                         to_remove.push(save_num);
                     }
                     if self.save_info[save_num].sync_request
-                        && !to_sync.contains(&save_num)
+                        && !self.sync_queue.contains(&save_num)
                         && !self.save_info[save_num].syncing
                     {
                         self.save_info[save_num].syncing = true;
                         self.save_info[save_num].sync_request = false;
-                        to_sync.push(save_num);
+                        self.sync_queue.push(save_num);
                     }
                     save_num += 1;
                 }
@@ -325,7 +327,7 @@ impl eframe::App for MyApp {
                     self.saves.remove(*save_num);
                 }
                 let _ = data::save_config_data(self.server.clone(), &self.ftp, &self.saves);
-                for save_num in to_sync {
+                if self.sync_queue.len() > 0 {
                     let mut thread_num = 0;
                     for t in &self.threads {
                         let result = t.receiver.try_recv();
@@ -333,9 +335,12 @@ impl eframe::App for MyApp {
                         match result {
                             Ok(str) => {
                                 if str == "free".to_string() {
+                                    let save_num = self.sync_queue.remove(0);
                                     t.sender.send(format!("sync;{}", save_num)).unwrap();
                                     self.save_info[save_num].thread = thread_num;
-                                    break;
+                                    if self.sync_queue.len() == 0 {
+                                        break;
+                                    }
                                 };
                             }
                             Err(err) => (),
